@@ -7,6 +7,8 @@ package otelgin // import "go.opentelemetry.io/contrib/instrumentation/github.co
 
 import (
 	"fmt"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/gin-gonic/gin"
 
@@ -21,14 +23,17 @@ import (
 
 const (
 	tracerKey = "otel-go-contrib-tracer"
+	meterKey  = "otel-go-contrib-meter"
 	// ScopeName is the instrumentation scope name.
-	ScopeName = "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	ScopeName = "github.com/Cyprinus12138/otelgin"
+	role      = "server"
 )
 
 // Middleware returns middleware that will trace incoming requests.
 // The service parameter should describe the name of the (virtual)
 // server handling the request.
 func Middleware(service string, opts ...Option) gin.HandlerFunc {
+	var err error
 	cfg := config{}
 	for _, opt := range opts {
 		opt.apply(&cfg)
@@ -36,13 +41,61 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 	if cfg.TracerProvider == nil {
 		cfg.TracerProvider = otel.GetTracerProvider()
 	}
+	if cfg.MeterProvider == nil {
+		cfg.MeterProvider = otel.GetMeterProvider()
+	}
 	tracer := cfg.TracerProvider.Tracer(
 		ScopeName,
 		oteltrace.WithInstrumentationVersion(Version()),
 	)
+	meter := cfg.MeterProvider.Meter(
+		ScopeName,
+		otelmetric.WithInstrumentationVersion(Version()),
+	)
 	if cfg.Propagators == nil {
 		cfg.Propagators = otel.GetTextMapPropagator()
 	}
+
+	cfg.reqDuration, err = meter.Float64Histogram("http."+role+".request.duration",
+		otelmetric.WithDescription("Measures the duration of inbound RPC."),
+		otelmetric.WithUnit("ms"))
+	if err != nil {
+		otel.Handle(err)
+		if cfg.reqDuration == nil {
+			cfg.reqDuration = noop.Float64Histogram{}
+		}
+	}
+
+	cfg.reqSize, err = meter.Int64UpDownCounter("http."+role+".request.body.size",
+		otelmetric.WithDescription("Measures size of RPC request messages (uncompressed)."),
+		otelmetric.WithUnit("By"))
+	if err != nil {
+		otel.Handle(err)
+		if cfg.reqSize == nil {
+			cfg.reqSize = noop.Int64UpDownCounter{}
+		}
+	}
+
+	cfg.respSize, err = meter.Int64UpDownCounter("http."+role+".response.body.size",
+		otelmetric.WithDescription("Measures size of RPC response messages (uncompressed)."),
+		otelmetric.WithUnit("By"))
+	if err != nil {
+		otel.Handle(err)
+		if cfg.respSize == nil {
+			cfg.respSize = noop.Int64UpDownCounter{}
+		}
+	}
+
+	cfg.activeReqs, err = meter.Int64UpDownCounter("http."+role+".active_requests",
+		otelmetric.WithDescription("Measures the number of messages received per RPC. Should be 1 for all non-streaming RPCs."),
+		otelmetric.WithUnit("{count}"))
+	if err != nil {
+		otel.Handle(err)
+		if cfg.activeReqs == nil {
+			cfg.activeReqs = noop.Int64UpDownCounter{}
+		}
+	}
+
 	return func(c *gin.Context) {
 		for _, f := range cfg.Filters {
 			if !f(c.Request) {
@@ -53,6 +106,7 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 			}
 		}
 		c.Set(tracerKey, tracer)
+		c.Set(meterKey, meter)
 		savedCtx := c.Request.Context()
 		defer func() {
 			c.Request = c.Request.WithContext(savedCtx)
