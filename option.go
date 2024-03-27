@@ -65,7 +65,7 @@ func WithTracerProvider(provider oteltrace.TracerProvider) Option {
 	})
 }
 
-// WithMeterProvider specifies a meter provider to use for creating a tracer.
+// WithMeterProvider specifies a meter provider to use for creating a metric.
 // If none is specified, the global provider is used.
 func WithMeterProvider(provider otelmetric.MeterProvider) Option {
 	return optionFunc(func(cfg *config) {

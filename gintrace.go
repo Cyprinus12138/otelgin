@@ -28,10 +28,9 @@ const (
 	tracerKey = "otel-go-contrib-tracer"
 	meterKey  = "otel-go-contrib-meter"
 	// ScopeName is the instrumentation scope name.
-	ScopeName    = "github.com/Cyprinus12138/otelgin"
-	role         = "server"
-	unknownRoute = "UNKNOWN"
-	one          = 1
+	ScopeName = "github.com/Cyprinus12138/otelgin"
+	role      = "server"
+	one       = 1
 )
 
 // Middleware returns middleware that will trace incoming requests.
@@ -122,10 +121,12 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(savedCtx)
 		}()
 		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
+		httpAttrs := semconvutil.HTTPServerRequest(service, c.Request)
 		opts := []oteltrace.SpanStartOption{
-			oteltrace.WithAttributes(semconvutil.HTTPServerRequest(service, c.Request)...),
+			oteltrace.WithAttributes(httpAttrs...),
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		}
+		metricAttrs = httpAttrs
 		var spanName string
 		if cfg.SpanNameFormatter == nil {
 			spanName = c.FullPath()
@@ -133,7 +134,6 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 			spanName = cfg.SpanNameFormatter(c.Request)
 		}
 		if spanName == "" {
-			rAttr = semconv.HTTPRoute(unknownRoute)
 			spanName = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
 		} else {
 			rAttr = semconv.HTTPRoute(spanName)
@@ -161,6 +161,9 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 
 		status := c.Writer.Status()
 		span.SetStatus(semconvutil.HTTPServerStatus(status))
+		cfg.reqSize.Add(ctx, int64(reqSize), otelmetric.WithAttributes(metricAttrs...))
+		cfg.respSize.Add(ctx, int64(respSize), otelmetric.WithAttributes(metricAttrs...))
+
 		if status > 0 {
 			statusAttr := semconv.HTTPStatusCode(status)
 			span.SetAttributes(statusAttr)
@@ -174,11 +177,12 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 
 		cfg.reqDuration.Record(ctx, elapsedTime, otelmetric.WithAttributes(metricAttrs...))
 		cfg.activeReqs.Add(ctx, one, otelmetric.WithAttributes(metricAttrs...))
-		cfg.reqSize.Add(ctx, int64(reqSize), otelmetric.WithAttributes(rAttr))
-		cfg.respSize.Add(ctx, int64(respSize), otelmetric.WithAttributes(rAttr))
 	}
 }
 
+// calcReqSize returns the total size of the request.
+// It will calculate the header size by iterate all the header KVs
+// and add with body size.
 func calcReqSize(c *gin.Context) int {
 	// Read the request body
 	body, err := io.ReadAll(c.Request.Body)
