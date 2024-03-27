@@ -1,10 +1,10 @@
-# Go OpenTelemetry Gonic-gin Tracer & Metrics Instrumentation
+# Go OpenTelemetry Gonic-gin Trace & Metrics Instrumentation
 
 [![ci](https://github.com/Cyprinus12138/otelgin/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/Cyprinus12138/otelgin/actions/workflows/go.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Cyprinus12138/otelgin)](https://goreportcard.com/report/github.com/Cyprinus12138/otelgin)
 [![Documentation](https://godoc.org/github.com/Cyprinus12138/otelgin?status.svg)](https://pkg.go.dev/mod/github.com/Cyprinus12138/otelgin)
 
-It is an OpenTelemetry (OTel) metric instrumentation for Golang gRPC servers and clients based on [gRPC Stats](https://pkg.go.dev/google.golang.org/grpc/stats).
+It is an OpenTelemetry (OTel) trace & metric instrumentation for http server implement with Gonic-gin. [Gin Web Framework](https://gin-gonic.com/).
 
 ## Install
 
