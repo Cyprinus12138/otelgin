@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 N/A
 
-## [1.0.0] - 2024-03-27
+## [v1.0.0] - 2024-03-27
 
 ### Added
 - Add `WithMeterProvider` as a new Option.
