@@ -9,6 +9,9 @@ import (
 	"fmt"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+	"io"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,8 +28,10 @@ const (
 	tracerKey = "otel-go-contrib-tracer"
 	meterKey  = "otel-go-contrib-meter"
 	// ScopeName is the instrumentation scope name.
-	ScopeName = "github.com/Cyprinus12138/otelgin"
-	role      = "server"
+	ScopeName    = "github.com/Cyprinus12138/otelgin"
+	role         = "server"
+	unknownRoute = "UNKNOWN"
+	one          = 1
 )
 
 // Middleware returns middleware that will trace incoming requests.
@@ -97,6 +102,11 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		var (
+			metricAttrs []attribute.KeyValue
+			rAttr       attribute.KeyValue
+		)
+
 		for _, f := range cfg.Filters {
 			if !f(c.Request) {
 				// Serve the request to the next middleware
@@ -123,29 +133,74 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 			spanName = cfg.SpanNameFormatter(c.Request)
 		}
 		if spanName == "" {
+			rAttr = semconv.HTTPRoute(unknownRoute)
 			spanName = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
 		} else {
-			rAttr := semconv.HTTPRoute(spanName)
+			rAttr = semconv.HTTPRoute(spanName)
 			opts = append(opts, oteltrace.WithAttributes(rAttr))
+			metricAttrs = append(metricAttrs, rAttr)
 		}
 		ctx, span := tracer.Start(ctx, spanName, opts...)
 		defer span.End()
 
 		// pass the span through the request context
 		c.Request = c.Request.WithContext(ctx)
+		// calculate the size of the request.
+		reqSize := calcReqSize(c)
+		before := time.Now()
 
 		// serve the request to the next middleware
 		c.Next()
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedTime := float64(time.Since(before)) / float64(time.Millisecond)
+		respSize := c.Writer.Size()
+		// If nothing written in the response yet, a value of -1 may be returned.
+		if respSize < 0 {
+			respSize = 0
+		}
 
 		status := c.Writer.Status()
 		span.SetStatus(semconvutil.HTTPServerStatus(status))
 		if status > 0 {
-			span.SetAttributes(semconv.HTTPStatusCode(status))
+			statusAttr := semconv.HTTPStatusCode(status)
+			span.SetAttributes(statusAttr)
+			metricAttrs = append(metricAttrs, statusAttr)
 		}
 		if len(c.Errors) > 0 {
-			span.SetAttributes(attribute.String("gin.errors", c.Errors.String()))
+			errAttr := attribute.String("gin.errors", c.Errors.String())
+			span.SetAttributes(errAttr)
+			metricAttrs = append(metricAttrs, errAttr)
+		}
+
+		cfg.reqDuration.Record(ctx, elapsedTime, otelmetric.WithAttributes(metricAttrs...))
+		cfg.activeReqs.Add(ctx, one, otelmetric.WithAttributes(metricAttrs...))
+		cfg.reqSize.Add(ctx, int64(reqSize), otelmetric.WithAttributes(rAttr))
+		cfg.respSize.Add(ctx, int64(respSize), otelmetric.WithAttributes(rAttr))
+	}
+}
+
+func calcReqSize(c *gin.Context) int {
+	// Read the request body
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to read request body"})
+		return 0
+	}
+
+	// Restore the request body for further processing
+	c.Request.Body = io.NopCloser(c.Request.Body)
+
+	// Calculate the size of headers
+	headerSize := 0
+	for name, values := range c.Request.Header {
+		headerSize += len(name) + 2 // Colon and space
+		for _, value := range values {
+			headerSize += len(value)
 		}
 	}
+
+	// Calculate the total size of the request (headers + body)
+	return headerSize + len(body)
 }
 
 // HTML will trace the rendering of the template as a child of the
