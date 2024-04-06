@@ -16,3 +16,8 @@ N/A
 - Implement basic http server metrics. 
 - Add example of initialization of `MeterProvider` in the example.
 - Add README.md.
+
+## [v1.0.1] - 2024-04-06
+
+### Fixed
+- Fix the bug when middleware calculating the size of the request body. (#1)
