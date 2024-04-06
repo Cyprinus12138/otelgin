@@ -6,6 +6,7 @@
 package otelgin // import "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 import (
+	"bytes"
 	"fmt"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
@@ -192,7 +193,7 @@ func calcReqSize(c *gin.Context) int {
 	}
 
 	// Restore the request body for further processing
-	c.Request.Body = io.NopCloser(c.Request.Body)
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 
 	// Calculate the size of headers
 	headerSize := 0
