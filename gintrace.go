@@ -8,11 +8,12 @@ package otelgin // import "go.opentelemetry.io/contrib/instrumentation/github.co
 import (
 	"bytes"
 	"fmt"
-	otelmetric "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
 	"io"
 	"net/http"
 	"time"
+
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/gin-gonic/gin"
 
@@ -122,12 +123,12 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(savedCtx)
 		}()
 		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
-		httpAttrs := semconvutil.HTTPServerRequest(service, c.Request)
+		httpTraceAttrs := semconvutil.HTTPServerRequest(service, c.Request)
 		opts := []oteltrace.SpanStartOption{
-			oteltrace.WithAttributes(httpAttrs...),
+			oteltrace.WithAttributes(httpTraceAttrs...),
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		}
-		metricAttrs = httpAttrs
+		metricAttrs = semconvutil.HTTPServerRequestMetrics(service, c.Request)
 		var spanName string
 		if cfg.SpanNameFormatter == nil {
 			spanName = c.FullPath()
