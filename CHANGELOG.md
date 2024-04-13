@@ -21,3 +21,8 @@ N/A
 
 ### Fixed
 - Fix the bug when middleware calculating the size of the request body. (#1)
+
+## [v1.0.2] - 2024-04-13
+
+### Fixed
+- Use semconvutil.HTTPServerRequestMetrics() for metric attrs to avoid the memory bloat. (#3)
