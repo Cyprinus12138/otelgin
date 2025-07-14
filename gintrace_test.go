@@ -8,6 +8,7 @@ package otelgin
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,10 +19,13 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
 
 	b3prop "go.opentelemetry.io/contrib/propagators/b3"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 func init() {
@@ -163,4 +167,128 @@ func TestCalcReqSizeWithBodyRead(t *testing.T) {
 	if !bytes.Equal(newBody, body) {
 		t.Errorf("Expected request body %q, got %q", body, newBody)
 	}
+}
+
+// TestDisableGinErrorsOnMetrics tests that the gin.errors attribute is properly excluded
+// from metrics when the DisableGinErrorsOnMetrics option is enabled.
+func TestDisableGinErrorsOnMetrics(t *testing.T) {
+	tests := []struct {
+		name                      string
+		disableGinErrorsOnMetrics bool
+		expectGinErrorsAttr       bool
+	}{
+		{
+			name:                      "default - gin.errors included in metrics",
+			disableGinErrorsOnMetrics: false,
+			expectGinErrorsAttr:       true,
+		},
+		{
+			name:                      "disabled - gin.errors excluded from metrics",
+			disableGinErrorsOnMetrics: true,
+			expectGinErrorsAttr:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := metric.NewManualReader()
+			meterProvider := metric.NewMeterProvider(metric.WithReader(reader))
+			defer func() {
+				_ = meterProvider.Shutdown(context.Background())
+			}()
+
+			router := gin.New()
+			opts := []Option{WithMeterProvider(meterProvider)}
+			if tt.disableGinErrorsOnMetrics {
+				opts = append(opts, WithDisableGinErrorsOnMetrics(true))
+			}
+			router.Use(Middleware("test-service", opts...))
+
+			router.GET("/error", func(c *gin.Context) {
+				c.Error(fmt.Errorf("test error"))
+				c.String(http.StatusOK, "response")
+			})
+
+			req := httptest.NewRequest("GET", "/error", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+
+			var rm metricdata.ResourceMetrics
+			err := reader.Collect(context.Background(), &rm)
+			assert.NoError(t, err)
+
+			foundGinErrorsAttr := false
+			for _, sm := range rm.ScopeMetrics {
+				for _, m := range sm.Metrics {
+					if checkMetricForGinErrors(m) {
+						foundGinErrorsAttr = true
+						break
+					}
+				}
+				if foundGinErrorsAttr {
+					break
+				}
+			}
+
+			if tt.expectGinErrorsAttr {
+				assert.True(t, foundGinErrorsAttr, "Expected gin.errors attribute to be present in metrics")
+			} else {
+				assert.False(t, foundGinErrorsAttr, "Expected gin.errors attribute to be excluded from metrics")
+			}
+		})
+	}
+}
+
+func checkMetricForGinErrors(m metricdata.Metrics) bool {
+	switch data := m.Data.(type) {
+	case metricdata.Histogram[int64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	case metricdata.Histogram[float64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	case metricdata.Sum[int64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	case metricdata.Sum[float64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	case metricdata.Gauge[int64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	case metricdata.Gauge[float64]:
+		for _, dp := range data.DataPoints {
+			if hasGinErrorsAttr(dp.Attributes) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasGinErrorsAttr(attrs attribute.Set) bool {
+	iter := attrs.Iter()
+	for iter.Next() {
+		if iter.Attribute().Key == "gin.errors" {
+			return true
+		}
+	}
+	return false
 }
