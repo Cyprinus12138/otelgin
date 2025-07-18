@@ -14,11 +14,12 @@ import (
 )
 
 type config struct {
-	TracerProvider    oteltrace.TracerProvider
-	MeterProvider     otelmetric.MeterProvider
-	Propagators       propagation.TextMapPropagator
-	Filters           []Filter
-	SpanNameFormatter SpanNameFormatter
+	TracerProvider            oteltrace.TracerProvider
+	MeterProvider             otelmetric.MeterProvider
+	Propagators               propagation.TextMapPropagator
+	Filters                   []Filter
+	SpanNameFormatter         SpanNameFormatter
+	DisableGinErrorsOnMetrics bool
 
 	reqDuration otelmetric.Float64Histogram
 	reqSize     otelmetric.Int64UpDownCounter
@@ -92,5 +93,14 @@ func WithFilter(f ...Filter) Option {
 func WithSpanNameFormatter(f func(r *http.Request) string) Option {
 	return optionFunc(func(c *config) {
 		c.SpanNameFormatter = f
+	})
+}
+
+// WithGinErrorsOnMetrics enables/disables the addition of the label
+// `gin.errors` to metrics. Disabling it helps reduce the
+// number of series, making it easier on metrics systems
+func WithDisableGinErrorsOnMetrics(state bool) Option {
+	return optionFunc(func(c *config) {
+		c.DisableGinErrorsOnMetrics = state
 	})
 }

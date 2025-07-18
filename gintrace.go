@@ -174,7 +174,10 @@ func Middleware(service string, opts ...Option) gin.HandlerFunc {
 		if len(c.Errors) > 0 {
 			errAttr := attribute.String("gin.errors", c.Errors.String())
 			span.SetAttributes(errAttr)
-			metricAttrs = append(metricAttrs, errAttr)
+			if !cfg.DisableGinErrorsOnMetrics {
+				metricAttrs = append(metricAttrs, errAttr)
+			}
+
 		}
 
 		cfg.reqDuration.Record(ctx, elapsedTime, otelmetric.WithAttributes(metricAttrs...))
